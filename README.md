@@ -14,8 +14,7 @@ A real-time public chatroom backend built with ASP.NET Core 8 and SignalR. Suppo
 
 ## Tech Stack
 
-| Technology | Version | Purpose |
-|------------|---------|---------|
+
 | .NET | 8.0 | Runtime |
 | ASP.NET Core | 8.0 | Web Framework |
 | SignalR | 8.0 | Real-time Communication |
