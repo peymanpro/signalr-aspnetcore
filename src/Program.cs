@@ -3,11 +3,20 @@ using Microsoft.AspNetCore.SignalR;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSignalR();
-builder.Services.AddCors();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecific", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "http://localhost:5000", "http://127.0.0.1:5500", "null")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
 
 var app = builder.Build();
 
-app.UseCors(policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+app.UseCors("AllowSpecific");
 app.MapHub<ChatHub>("/chat");
 
 app.Run();
@@ -18,7 +27,7 @@ public class ChatHub : Hub
 
     public override async Task OnConnectedAsync()
     {
-        Console.WriteLine($"New user connected: {Context.ConnectionId}");
+        Console.WriteLine($"✅ New user connected: {Context.ConnectionId}");
         await base.OnConnectedAsync();
     }
 
@@ -30,7 +39,7 @@ public class ChatHub : Hub
         {
             username = username,
             message = $"{username} joined the chat",
-            time = DateTime.Now
+            time = DateTime.Now.ToString("HH:mm:ss")
         });
 
         await Clients.Caller.SendAsync("welcome", new
@@ -39,21 +48,23 @@ public class ChatHub : Hub
             users = _users.Values.ToList()
         });
 
-        await SendOnlineUsers();
+        await Clients.All.SendAsync("online-users", _users.Values.ToList());
+        
+        Console.WriteLine($"👤 User joined: {username} (Total: {_users.Count})");
     }
 
-    public async Task SendMessage(object data)
+    public async Task SendMessage(string message)
     {
         if (_users.TryGetValue(Context.ConnectionId, out string? username))
         {
-            var message = data.ToString();
             await Clients.All.SendAsync("new-message", new
             {
                 username = username,
                 message = message,
-                time = DateTime.Now,
+                time = DateTime.Now.ToString("HH:mm:ss"),
                 id = Context.ConnectionId
             });
+            Console.WriteLine($"💬 Message from {username}: {message}");
         }
     }
 
@@ -91,16 +102,13 @@ public class ChatHub : Hub
             {
                 username = username,
                 message = $"{username} left the chat",
-                time = DateTime.Now
+                time = DateTime.Now.ToString("HH:mm:ss")
             });
             
-            await SendOnlineUsers();
+            await Clients.All.SendAsync("online-users", _users.Values.ToList());
+            
+            Console.WriteLine($"❌ User left: {username} (Remaining: {_users.Count})");
         }
         await base.OnDisconnectedAsync(exception);
-    }
-
-    private async Task SendOnlineUsers()
-    {
-        await Clients.All.SendAsync("online-users", _users.Values.ToList());
     }
 }
