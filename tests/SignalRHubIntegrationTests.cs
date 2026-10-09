@@ -39,7 +39,7 @@ public class SignalRHubIntegrationTests
 
             var stopReceived = second.WaitForEventAsync(
                 "user-typing",
-                arguments => arguments.Length > 0 &&
+                arguments => arguments.ValueKind == JsonValueKind.Array && arguments.GetArrayLength() > 0 &&
                     arguments[0].TryGetProperty("isTyping", out var isTyping) &&
                     isTyping.ValueKind == JsonValueKind.False);
             await first.InvokeAsync("TypingStop");
@@ -48,7 +48,7 @@ public class SignalRHubIntegrationTests
             const string chatText = "The primary chat path must remain deterministic.";
             var messageReceived = second.WaitForEventAsync(
                 "new-message",
-                arguments => arguments.Length > 0 &&
+                arguments => arguments.ValueKind == JsonValueKind.Array && arguments.GetArrayLength() > 0 &&
                     arguments[0].TryGetProperty("message", out var message) &&
                     message.GetString() == chatText);
             await first.InvokeAsync("SendMessage", chatText);
