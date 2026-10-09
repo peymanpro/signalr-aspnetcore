@@ -90,7 +90,9 @@ public class LnasfTypingAdaptationTests
         Assert.False(suppressed.Broadcast);
         Assert.True(service.HandleStop("socket-a").Broadcast);
         var json = System.Text.Json.JsonSerializer.Serialize(service.GetSnapshot());
-        Assert.Contains("typingStartSuppressed":1", json);
-        Assert.Contains("typingStopBroadcast":1", json);
+        using var document = System.Text.Json.JsonDocument.Parse(json);
+        var measurement = document.RootElement.GetProperty("measurement");
+        Assert.Equal(1, measurement.GetProperty("typingStartSuppressed").GetInt64());
+        Assert.Equal(1, measurement.GetProperty("typingStopBroadcast").GetInt64());
     }
 }
