@@ -11,6 +11,7 @@ if (allowedOrigins.Length == 0)
 }
 
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<TypingAdaptationService>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ChatClients", policy =>
@@ -25,12 +26,16 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 app.UseCors("ChatClients");
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/lnasf/metrics", (TypingAdaptationService adaptation) => Results.Ok(adaptation.GetSnapshot()));
 app.MapHub<ChatHub>("/chat");
 app.Run();
 
 public class ChatHub : Hub
 {
     private static readonly ConcurrentDictionary<string, string> Users = new();
+    private readonly TypingAdaptationService _typingAdaptation;
+
+    public ChatHub(TypingAdaptationService typingAdaptation) => _typingAdaptation = typingAdaptation;
 
     public override async Task OnConnectedAsync()
     {
@@ -96,22 +101,25 @@ public class ChatHub : Hub
         });
     }
 
-    public Task TypingStart() => BroadcastTyping(true);
-
-    public Task TypingStop() => BroadcastTyping(false);
-
-    private Task BroadcastTyping(bool isTyping)
+    public Task TypingStart()
     {
-        if (!Users.TryGetValue(Context.ConnectionId, out var username))
-        {
-            return Task.CompletedTask;
-        }
+        if (!Users.TryGetValue(Context.ConnectionId, out var username)) return Task.CompletedTask;
+        var decision = _typingAdaptation.HandleStart(Context.ConnectionId, DateTimeOffset.UtcNow);
+        return decision.Broadcast
+            ? Clients.Others.SendAsync("user-typing", new { username, isTyping = true })
+            : Task.CompletedTask;
+    }
 
-        return Clients.Others.SendAsync("user-typing", new { username, isTyping });
+    public Task TypingStop()
+    {
+        if (!Users.TryGetValue(Context.ConnectionId, out var username)) return Task.CompletedTask;
+        _typingAdaptation.HandleStop(Context.ConnectionId);
+        return Clients.Others.SendAsync("user-typing", new { username, isTyping = false });
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        _typingAdaptation.Remove(Context.ConnectionId);
         if (Users.TryRemove(Context.ConnectionId, out var username))
         {
             await Clients.All.SendAsync("user-left", new
