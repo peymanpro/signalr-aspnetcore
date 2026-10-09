@@ -88,6 +88,10 @@ Set `LNASF_MODE=passive` (default), `advisory`, or `adaptive`. Passive learns wi
 
 `dotnet test` includes deterministic LNASF tests for model updates, prediction confidence, mode separation, fallback, and measured suppression. No performance gain is claimed without an end-to-end SignalR workload benchmark.
 
+
+
+Framework context: [LNASF concept and architecture](https://github.com/peymanpro/learning-native-adaptive-software-framework) · [Technical specification](https://github.com/peymanpro/learning-native-adaptive-software-framework/blob/main/SPECIFICATION.md). This repository implements only the specific LNASF subset documented above; it is not a complete framework implementation.
+
 ## Limitations
 
 Presence is process-local and disappears on restart. Multiple server instances need a shared presence store and a supported SignalR scale-out service. Authentication, authorization, persistence, backpressure, and rate limiting are intentionally out of scope.
