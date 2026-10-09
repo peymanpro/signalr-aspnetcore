@@ -59,6 +59,26 @@ public class LnasfTypingAdaptationTests
     }
 
     [Fact]
+    public void AdaptiveModeReducesDuplicateBroadcastsAgainstPassiveBaselineOnSameTrace()
+    {
+        var passive = TypingAdaptationService.ForMode("passive");
+        var adaptive = TypingAdaptationService.ForMode("adaptive");
+        var passiveBroadcasts = 0;
+        var adaptiveBroadcasts = 0;
+        for (var index = 0; index < 30; index++)
+        {
+            var now = DateTimeOffset.UnixEpoch.AddMilliseconds(index * 100);
+            if (passive.HandleStart("same-trace", now).Broadcast) passiveBroadcasts++;
+            if (adaptive.HandleStart("same-trace", now).Broadcast) adaptiveBroadcasts++;
+        }
+
+        Assert.Equal(30, passiveBroadcasts);
+        Assert.True(adaptiveBroadcasts < passiveBroadcasts);
+        var snapshotJson = System.Text.Json.JsonSerializer.Serialize(adaptive.GetSnapshot());
+        Assert.Contains("\\"typingStartSuppressed\\":", snapshotJson);
+    }
+
+    [Fact]
     public void TypingStopAlwaysPassesThroughAndMetricsMeasureSuppression()
     {
         var service = TypingAdaptationService.ForMode("adaptive");
