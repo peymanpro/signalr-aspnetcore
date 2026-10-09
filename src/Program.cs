@@ -153,7 +153,7 @@ public static class ChatValidation
         var message = value?.Trim();
         if (string.IsNullOrWhiteSpace(message) ||
             message.Length > MaxMessageLength ||
-            message.Any(char.IsControl))
+            message.Any(character => char.IsControl(character) && character != '\\r' && character != '\\n' && character != '\\t'))
         {
             throw new HubException($"Messages must contain 1 to {MaxMessageLength} visible characters.");
         }
