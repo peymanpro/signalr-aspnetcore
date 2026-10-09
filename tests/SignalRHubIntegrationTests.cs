@@ -73,15 +73,15 @@ public class SignalRHubIntegrationTests
         }
         finally
         {
-            if (!server.HasExited)
+            if (!server.Process.HasExited)
             {
-                server.Kill(entireProcessTree: true);
-                await server.WaitForExitAsync();
+                server.Process.Kill(entireProcessTree: true);
+                await server.Process.WaitForExitAsync();
             }
         }
     }
 
-    private static Process StartServer(string repositoryRoot, int port)
+    private static ServerHost StartServer(string repositoryRoot, int port)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -91,12 +91,7 @@ public class SignalRHubIntegrationTests
             UseShellExecute = false,
             CreateNoWindow = true
         };
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add("--configuration");
-        startInfo.ArgumentList.Add("Release");
-        startInfo.ArgumentList.Add("--no-build");
-        startInfo.ArgumentList.Add("--project");
-        startInfo.ArgumentList.Add("src/src.csproj");
+        startInfo.ArgumentList.Add(Path.Combine(repositoryRoot, "src", "bin", "Release", "net8.0", "src.dll"));
         startInfo.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";
         startInfo.Environment["LNASF_MODE"] = "adaptive";
         startInfo.Environment["CHAT_ALLOWED_ORIGINS"] = "http://localhost:3000";
@@ -104,14 +99,23 @@ public class SignalRHubIntegrationTests
 
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Could not start the ASP.NET Core SignalR test server.");
+        var diagnostics = new StringBuilder();
+        process.OutputDataReceived += (_, eventArgs) =>
+        {
+            if (eventArgs.Data is not null) lock (diagnostics) diagnostics.AppendLine(eventArgs.Data);
+        };
+        process.ErrorDataReceived += (_, eventArgs) =>
+        {
+            if (eventArgs.Data is not null) lock (diagnostics) diagnostics.AppendLine(eventArgs.Data);
+        };
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        return process;
+        return new ServerHost(process, diagnostics);
     }
 
     private static async Task WaitForHealthAsync(
         HttpClient http,
-        Process server,
+        ServerHost server,
         string baseUrl,
         TimeSpan timeout)
     {
@@ -119,10 +123,10 @@ public class SignalRHubIntegrationTests
         Exception? lastError = null;
         while (timer.Elapsed < timeout)
         {
-            if (server.HasExited)
+            if (server.Process.HasExited)
             {
                 throw new InvalidOperationException(
-                    $"The SignalR test server exited early with code {server.ExitCode}.");
+                    $"The SignalR test server exited early with code {server.Process.ExitCode}. {server.GetDiagnostics()}");
             }
 
             try
@@ -142,7 +146,9 @@ public class SignalRHubIntegrationTests
             await Task.Delay(100);
         }
 
-        throw new TimeoutException("The SignalR test server did not become healthy in time.", lastError);
+        throw new TimeoutException(
+            $"The SignalR test server did not become healthy in time. {server.GetDiagnostics()}",
+            lastError);
     }
 
     private static int GetAvailablePort()
@@ -166,6 +172,26 @@ public class SignalRHubIntegrationTests
         }
 
         throw new DirectoryNotFoundException("Could not locate the SignalR repository root for the integration test.");
+    }
+
+    private sealed class ServerHost : IDisposable
+    {
+        private readonly StringBuilder _diagnostics;
+
+        public ServerHost(Process process, StringBuilder diagnostics)
+        {
+            Process = process;
+            _diagnostics = diagnostics;
+        }
+
+        public Process Process { get; }
+
+        public string GetDiagnostics()
+        {
+            lock (_diagnostics) return _diagnostics.ToString();
+        }
+
+        public void Dispose() => Process.Dispose();
     }
 
     private sealed record HubEvent(string Target, JsonElement Arguments);
