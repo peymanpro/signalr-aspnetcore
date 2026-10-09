@@ -78,7 +78,7 @@ dotnet test signalr-aspnetcore-public-chatroom.sln
 dotnet build signalr-aspnetcore-public-chatroom.sln --configuration Release
 ```
 
-The test project covers display-name and message validation boundaries. GitHub Actions builds the solution and runs the tests on pushes and pull requests.
+The test project covers display-name and message validation boundaries, LNASF model/policy behavior, and a live Hub integration test. The integration test starts the built ASP.NET Core app as a child process, negotiates SignalR, connects two real WebSocket clients, and verifies adaptive typing-start suppression while typing-stop and primary chat messages are still delivered. This is a protocol correctness test, not a load test or performance benchmark. GitHub Actions builds the solution and runs the full suite on pushes and pull requests.
 
 ## LNASF: native typing-burst adaptation
 
