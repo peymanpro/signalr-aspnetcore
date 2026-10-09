@@ -32,11 +32,17 @@ public class ChatValidationTests
         Assert.Equal("hello", ChatValidation.NormalizeMessage("  hello  "));
     }
 
+    [Fact]
+    public void NormalizeMessage_AllowsMultilineChatText()
+    {
+        Assert.Equal("first line\nsecond line", ChatValidation.NormalizeMessage(" first line\nsecond line "));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    [InlineData("line\nbreak")]
-    public void NormalizeMessage_RejectsEmptyAndControlCharacterContent(string input)
+    [InlineData("bad\u0001value")]
+    public void NormalizeMessage_RejectsEmptyAndUnsafeControlCharacters(string input)
     {
         Assert.Throws<HubException>(() => ChatValidation.NormalizeMessage(input));
     }
