@@ -10,7 +10,6 @@ public class LnasfTypingAdaptationTests
         model.ObserveGap(100);
         model.ObserveGap(200);
         model.ObserveGap(900);
-
         var prediction = model.Predict();
         Assert.NotNull(prediction);
         Assert.Equal(3, prediction!.Samples);
@@ -75,7 +74,7 @@ public class LnasfTypingAdaptationTests
         Assert.Equal(30, passiveBroadcasts);
         Assert.True(adaptiveBroadcasts < passiveBroadcasts);
         var snapshotJson = System.Text.Json.JsonSerializer.Serialize(adaptive.GetSnapshot());
-        Assert.Contains("\\"typingStartSuppressed\\":", snapshotJson);
+        Assert.Contains("typingStartSuppressed", snapshotJson);
     }
 
     [Fact]
@@ -91,7 +90,7 @@ public class LnasfTypingAdaptationTests
         Assert.False(suppressed.Broadcast);
         Assert.True(service.HandleStop("socket-a").Broadcast);
         var json = System.Text.Json.JsonSerializer.Serialize(service.GetSnapshot());
-        Assert.Contains("\"typingStartSuppressed\":1", json);
-        Assert.Contains("\"typingStopBroadcast\":1", json);
+        Assert.Contains("typingStartSuppressed":1", json);
+        Assert.Contains("typingStopBroadcast":1", json);
     }
 }
