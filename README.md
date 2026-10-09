@@ -1,59 +1,85 @@
-# SignalR ASP.NET Core Public Chatroom
+# ASP.NET Core + SignalR Chat Backend
 
-A real-time public chatroom backend built with ASP.NET Core 8 and SignalR. Supports online users list, typing indicators, join/leave notifications, and CORS enabled for cross-origin requests.
+A minimal real-time public-chat backend using ASP.NET Core 8 and SignalR. It demonstrates hub-based messaging, online presence, typing indicators, server-side input validation, and a configurable browser-origin allow-list.
 
 ## Features
 
-- ✅ Real-time messaging with timestamps
-- ✅ Online users list with live updates
-- ✅ Join and leave notifications
-- ✅ Typing indicators
-- ✅ Personal welcome message for new users
-- ✅ CORS enabled for any client
-- ✅ Lightweight and fast
+- SignalR hub mapped at `/chat`.
+- Join/welcome, message, presence, leave, and typing events.
+- Thread-safe in-memory connection presence.
+- Display names limited to 32 characters and messages limited to 2,000 characters.
+- A unique identifier for every published message, so clients can deduplicate individual messages safely.
+- Configurable listener URL through `ASPNETCORE_URLS` and trusted frontend origins through `CHAT_ALLOWED_ORIGINS`.
+- `GET /health` for a basic health check.
 
-## Tech Stack
+## Requirements
 
+- .NET 8 SDK
 
-| .NET | 8.0 | Runtime |
-| ASP.NET Core | 8.0 | Web Framework |
-| SignalR | 8.0 | Real-time Communication |
-| C# | 12.0 | Programming Language |
+## Run locally
 
-## Prerequisites
-
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-
-## Installation
-
-### 1. Clone the repository
+From the repository root:
 
 ```bash
-git clone https://github.com/peymanpro/signalr-aspnetcore-public-chatroom.git
-cd signalr-aspnetcore-public-chatroom/src
+dotnet restore signalr-aspnetcore-public-chatroom.sln
+dotnet run --project src/src.csproj
+```
 
-Run the application
+The default ASP.NET Core URL is usually `http://localhost:5000` when configured as shown below. The hub endpoint is `http://localhost:5000/chat`.
 
-dotnet run
+### Configuration
 
+`CHAT_ALLOWED_ORIGINS` is a semicolon-separated list. The default development allow-list is:
 
-The server will start at: http://localhost:5000
+```text
+http://localhost:3000
+http://127.0.0.1:3000
+http://127.0.0.1:5500
+```
 
-SignalR Events
-Client → Server (Invoke)
-Event	Description	Payload
-UserJoin	User joins the chat	string username
-SendMessage	Send a message to all users	object { message: string }
-TypingStart	User starts typing	(empty)
-TypingStop	User stops typing	(empty)
-Server → Client (On)
-Event	Description	Payload
-welcome	Personal welcome message	{ message, users: [] }
-user-joined	New user joined the chat	{ username, message, time }
-user-left	User left the chat	{ username, message, time }
-new-message	New chat message	{ username, message, time, id }
-user-typing	Typing status	{ username, isTyping }
-online-users	Current online users list	[username1, username2]
+PowerShell example:
 
+```powershell
+$env:ASPNETCORE_URLS = "http://localhost:5000"
+$env:CHAT_ALLOWED_ORIGINS = "http://localhost:3000;http://127.0.0.1:3000"
+dotnet run --project src/src.csproj
+```
 
+Configure only trusted frontend origins in deployed environments. CORS is not authentication. This sample does not implement user identity, authorization, persistence, or rate limiting.
 
+## SignalR hub contract
+
+### Client invokes
+
+| Method | Argument |
+| --- | --- |
+| `UserJoin` | `string username` |
+| `SendMessage` | `string message` |
+| `TypingStart` | no arguments |
+| `TypingStop` | no arguments |
+
+### Server sends
+
+| Event | Payload |
+| --- | --- |
+| `welcome` | `{ message, users: string[] }` |
+| `user-joined` | `{ username, message, time }` |
+| `user-left` | `{ username, message, time }` |
+| `new-message` | `{ username, message, time, id }` |
+| `online-users` | `string[]` |
+| `user-typing` | `{ username, isTyping }` |
+
+Timestamps are emitted as UTC ISO-8601 strings. Invalid input and sending a message before joining result in a SignalR hub error.
+
+## Run tests
+
+```bash
+dotnet test signalr-aspnetcore-public-chatroom.sln
+dotnet build signalr-aspnetcore-public-chatroom.sln --configuration Release
+```
+
+The test project covers display-name and message validation boundaries. GitHub Actions builds the solution and runs the tests on pushes and pull requests.
+
+## Limitations
+
+Presence is process-local and disappears on restart. Multiple server instances need a shared presence store and a supported SignalR scale-out service. Authentication, authorization, persistence, backpressure, and rate limiting are intentionally out of scope.
