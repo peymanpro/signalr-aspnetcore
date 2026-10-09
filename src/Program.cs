@@ -1,13 +1,21 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
+var defaultOrigins = "http://localhost:3000;http://127.0.0.1:3000;http://127.0.0.1:5500";
+var allowedOrigins = (builder.Configuration["CHAT_ALLOWED_ORIGINS"] ?? defaultOrigins)
+    .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+if (allowedOrigins.Length == 0)
+{
+    allowedOrigins = defaultOrigins.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+}
 
 builder.Services.AddSignalR();
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowSpecific", policy =>
+    options.AddPolicy("ChatClients", policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "http://localhost:5000", "http://127.0.0.1:5500", "null")
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials();
@@ -15,100 +23,141 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
-
-app.UseCors("AllowSpecific");
+app.UseCors("ChatClients");
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapHub<ChatHub>("/chat");
-
 app.Run();
 
 public class ChatHub : Hub
 {
-    private static Dictionary<string, string> _users = new();
+    private static readonly ConcurrentDictionary<string, string> Users = new();
 
     public override async Task OnConnectedAsync()
     {
-        Console.WriteLine($"✅ New user connected: {Context.ConnectionId}");
+        Console.WriteLine("SignalR client connected.");
         await base.OnConnectedAsync();
     }
 
-    public async Task UserJoin(string username)
+    public async Task UserJoin(string rawUsername)
     {
-        _users[Context.ConnectionId] = username;
-        
+        var username = ChatValidation.NormalizeUsername(rawUsername);
+        var isKnownConnection = Users.TryGetValue(Context.ConnectionId, out var previousUsername);
+
+        Users[Context.ConnectionId] = username;
+        if (isKnownConnection && previousUsername == username)
+        {
+            await Clients.Caller.SendAsync("welcome", new
+            {
+                message = $"Welcome back to the chatroom, {username}!",
+                users = GetOnlineUsers()
+            });
+            return;
+        }
+
+        if (isKnownConnection && previousUsername is not null)
+        {
+            await Clients.Others.SendAsync("user-left", new
+            {
+                username = previousUsername,
+                message = $"{previousUsername} left the chat",
+                time = DateTimeOffset.UtcNow.ToString("O")
+            });
+        }
+
         await Clients.Others.SendAsync("user-joined", new
         {
-            username = username,
+            username,
             message = $"{username} joined the chat",
-            time = DateTime.Now.ToString("HH:mm:ss")
+            time = DateTimeOffset.UtcNow.ToString("O")
         });
 
         await Clients.Caller.SendAsync("welcome", new
         {
-            message = $"Welcome to the chatroom {username}!",
-            users = _users.Values.ToList()
+            message = $"Welcome to the chatroom, {username}!",
+            users = GetOnlineUsers()
         });
-
-        await Clients.All.SendAsync("online-users", _users.Values.ToList());
-        
-        Console.WriteLine($"👤 User joined: {username} (Total: {_users.Count})");
+        await Clients.All.SendAsync("online-users", GetOnlineUsers());
     }
 
-    public async Task SendMessage(string message)
+    public async Task SendMessage(string rawMessage)
     {
-        if (_users.TryGetValue(Context.ConnectionId, out string? username))
+        if (!Users.TryGetValue(Context.ConnectionId, out var username))
         {
-            await Clients.All.SendAsync("new-message", new
-            {
-                username = username,
-                message = message,
-                time = DateTime.Now.ToString("HH:mm:ss"),
-                id = Context.ConnectionId
-            });
-            Console.WriteLine($"💬 Message from {username}: {message}");
+            throw new HubException("Join the chat before sending messages.");
         }
+
+        var message = ChatValidation.NormalizeMessage(rawMessage);
+        await Clients.All.SendAsync("new-message", new
+        {
+            username,
+            message,
+            time = DateTimeOffset.UtcNow.ToString("O"),
+            id = Guid.NewGuid().ToString("N")
+        });
     }
 
-    public async Task TypingStart()
+    public Task TypingStart() => BroadcastTyping(true);
+
+    public Task TypingStop() => BroadcastTyping(false);
+
+    private Task BroadcastTyping(bool isTyping)
     {
-        if (_users.TryGetValue(Context.ConnectionId, out string? username))
+        if (!Users.TryGetValue(Context.ConnectionId, out var username))
         {
-            await Clients.Others.SendAsync("user-typing", new
-            {
-                username = username,
-                isTyping = true
-            });
+            return Task.CompletedTask;
         }
+
+        return Clients.Others.SendAsync("user-typing", new { username, isTyping });
     }
 
-    public async Task TypingStop()
+    public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        if (_users.TryGetValue(Context.ConnectionId, out string? username))
+        if (Users.TryRemove(Context.ConnectionId, out var username))
         {
-            await Clients.Others.SendAsync("user-typing", new
-            {
-                username = username,
-                isTyping = false
-            });
-        }
-    }
-
-    public override async Task OnDisconnectedAsync(Exception exception)
-    {
-        if (_users.TryGetValue(Context.ConnectionId, out string? username))
-        {
-            _users.Remove(Context.ConnectionId);
-            
             await Clients.All.SendAsync("user-left", new
             {
-                username = username,
+                username,
                 message = $"{username} left the chat",
-                time = DateTime.Now.ToString("HH:mm:ss")
+                time = DateTimeOffset.UtcNow.ToString("O")
             });
-            
-            await Clients.All.SendAsync("online-users", _users.Values.ToList());
-            
-            Console.WriteLine($"❌ User left: {username} (Remaining: {_users.Count})");
+            await Clients.All.SendAsync("online-users", GetOnlineUsers());
         }
+
         await base.OnDisconnectedAsync(exception);
+    }
+
+    private static string[] GetOnlineUsers() =>
+        Users.Values.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray();
+}
+
+public static class ChatValidation
+{
+    public const int MaxUsernameLength = 32;
+    public const int MaxMessageLength = 2000;
+
+    public static string NormalizeUsername(string? value)
+    {
+        var username = value?.Trim();
+        if (string.IsNullOrWhiteSpace(username) ||
+            username.Length > MaxUsernameLength ||
+            username.Any(char.IsControl))
+        {
+            throw new HubException($"Display names must contain 1 to {MaxUsernameLength} visible characters.");
+        }
+
+        return username;
+    }
+
+    public static string NormalizeMessage(string? value)
+    {
+        var message = value?.Trim();
+        if (string.IsNullOrWhiteSpace(message) ||
+            message.Length > MaxMessageLength ||
+            message.Any(char.IsControl))
+        {
+            throw new HubException($"Messages must contain 1 to {MaxMessageLength} visible characters.");
+        }
+
+        return message;
     }
 }
