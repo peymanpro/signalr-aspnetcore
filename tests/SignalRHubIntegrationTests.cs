@@ -209,6 +209,9 @@ public class SignalRHubIntegrationTests
             var socketUrl = new Uri(
                 $"{baseUrl.Replace("http://", "ws://", StringComparison.Ordinal)}/chat?id={Uri.EscapeDataString(token)}");
             await client._socket.ConnectAsync(socketUrl, CancellationToken.None);
+            var handshakeBytes = Encoding.UTF8.GetBytes("{\"protocol\":\"json\",\"version\":1}\\u001e");
+            await client._socket.SendAsync(
+                handshakeBytes, WebSocketMessageType.Text, true, CancellationToken.None);
 
             var handshake = await client.ReadHandshakeAsync();
             if (handshake != "{}")
